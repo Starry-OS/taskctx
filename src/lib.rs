@@ -28,7 +28,7 @@ pub use stat::*;
 cfg_if::cfg_if! {
     if #[cfg(feature = "multitask")] {
         mod kstack;
-        use kstack::*;mod task;
+        pub use kstack::*;mod task;
         pub use task::*;
     }
 }

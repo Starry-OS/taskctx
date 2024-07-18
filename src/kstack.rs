@@ -3,7 +3,7 @@ use core::{alloc::Layout, ptr::NonNull};
 
 use memory_addr::VirtAddr;
 
-pub(crate) struct TaskStack {
+pub struct TaskStack {
     ptr: NonNull<u8>,
     layout: Layout,
 }

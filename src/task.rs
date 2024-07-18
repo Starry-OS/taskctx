@@ -1,7 +1,7 @@
 #[cfg(feature = "tls")]
 use crate::tls::TlsArea;
 
-use crate::{arch::TaskContext, TaskStack, TimeStat};
+use crate::{arch::TaskContext, TimeStat};
 extern crate alloc;
 use alloc::{boxed::Box, string::String};
 
@@ -11,7 +11,19 @@ use core::{
     fmt,
     sync::atomic::{AtomicBool, AtomicI32, AtomicU64, AtomicU8, AtomicUsize, Ordering},
 };
-use memory_addr::{align_up_4k, VirtAddr};
+#[cfg(not(feature = "async"))]
+use {
+    crate::TaskStack,
+    memory_addr::{align_up_4k, VirtAddr}
+};
+
+#[cfg(feature = "async")]
+use {
+    crossbeam::atomic::AtomicCell,
+    core::future::Future,
+    core::pin::Pin,
+    core::ptr::NonNull,
+};
 
 /// A unique identifier for a thread.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -112,6 +124,7 @@ pub struct TaskInner {
     /// when the task exits.
     is_init: bool,
 
+    #[cfg(not(feature = "async"))]
     /// The entry point of the task
     ///
     /// For Unikernel, it is the entry point of the spawned task
@@ -140,9 +153,11 @@ pub struct TaskInner {
 
     exit_code: AtomicI32,
 
+    #[cfg(not(feature = "async"))]
     /// The kernel stack of the task
     kstack: Option<TaskStack>,
 
+    #[cfg(not(feature = "async"))]
     /// The context of the task
     ctx: UnsafeCell<TaskContext>,
 
@@ -183,6 +198,16 @@ pub struct TaskInner {
     #[cfg(feature = "monolithic")]
     /// Whether the task is a thread which is vforked by another task
     pub is_vforked_child: AtomicBool,
+
+    #[cfg(feature = "async")]
+    /// The future of the async task.
+    future: AtomicCell<Pin<Box<dyn Future<Output = i32> + 'static + Send>>>,
+
+    #[cfg(feature = "async")]
+    /// When the async task is breaked by the interrupt,
+    /// this field will be valid. Otherwise, it is dangerous to access this field.
+    ctx_ref: UnsafeCell<NonNull<TaskContext>>,
+
 }
 
 unsafe impl Send for TaskInner {}
@@ -211,6 +236,7 @@ impl TaskInner {
         alloc::format!("Task({}, {:?})", self.id.as_u64(), self.name())
     }
 
+    #[cfg(not(feature = "async"))]
     /// 获取内核栈栈顶
     #[inline]
     pub fn get_kernel_stack_top(&self) -> Option<usize> {
@@ -220,6 +246,7 @@ impl TaskInner {
         None
     }
 
+    #[cfg(not(feature = "async"))]
     #[cfg(feature = "monolithic")]
     /// Create a new task with the given entry function and stack size.
     pub fn new<F>(
@@ -256,6 +283,7 @@ impl TaskInner {
         t
     }
 
+    #[cfg(not(feature = "async"))]
     #[cfg(not(feature = "monolithic"))]
     /// Create a new task with the given entry function and stack size.
     pub fn new<F>(
@@ -286,6 +314,7 @@ impl TaskInner {
         t
     }
 
+    #[cfg(not(feature = "async"))]
     /// To init the task context
     ///
     /// # Arguments
@@ -472,11 +501,13 @@ impl TaskInner {
         unsafe { *status }
     }
 
+    #[cfg(not(feature = "async"))]
     /// get the task context for task switch
     pub fn get_ctx(&self) -> &TaskContext {
         unsafe { self.ctx.get().as_ref().unwrap() }
     }
 
+    #[cfg(not(feature = "async"))]
     #[cfg(target_arch = "x86_64")]
     /// # Safety
     /// It is unsafe because it may cause undefined behavior if the `fs_base` is not a valid address.
@@ -498,6 +529,7 @@ impl TaskInner {
 }
 
 impl TaskInner {
+    #[cfg(not(feature = "async"))]
     fn new_common(
         id: TaskId,
         name: String,
@@ -551,6 +583,7 @@ impl TaskInner {
         }
     }
 
+    #[cfg(not(feature = "async"))]
     /// Creates an "init task" using the current CPU states, to use as the
     /// current task.
     ///
@@ -630,6 +663,7 @@ impl TaskInner {
         self.preempt_disable_count.load(Ordering::Acquire)
     }
 
+    #[cfg(not(feature = "async"))]
     /// Get the task context pointer
     ///
     /// # Safety
@@ -652,6 +686,7 @@ impl TaskInner {
         self.exit_code.store(code, Ordering::Release)
     }
 
+    #[cfg(not(feature = "async"))]
     /// Get the task entry
     #[inline]
     pub fn get_entry(&self) -> Option<*mut dyn FnOnce()> {
@@ -695,4 +730,123 @@ impl Drop for TaskInner {
     fn drop(&mut self) {
         log::debug!("task drop: {}", self.id_name());
     }
+}
+
+#[cfg(feature = "async")]
+impl TaskInner {
+
+    pub fn new<F, T>(
+        fut: F,
+        name: String,
+        #[cfg(feature = "tls")] tls_area: (usize, usize),
+    ) -> Self 
+    where
+        F: FnOnce() -> T,
+        T: Future<Output = i32> + 'static + Send,
+    {
+        let mut t = Self::new_common(
+            fut,
+            name,
+            #[cfg(feature = "tls")]
+            tls_area,
+        );
+        if unsafe { &*t.name.get() }.as_str() == "idle" {
+            // FIXME: name 现已被用作 prctl 使用的程序名，应另选方式判断 idle 进程
+            t.is_idle = true;
+        }
+        t
+    }
+
+    pub fn new_init(
+        name: String,
+        #[cfg(feature = "tls")] tls_area: (usize, usize),
+    ) -> Self 
+    {
+        let mut t = Self::new_common(
+            // this future will never be polled and its size is zero.
+            move || async { 0 },
+            name,
+            #[cfg(feature = "tls")]
+            tls_area,
+        );
+        t.is_init = true;
+        if unsafe { &*t.name.get() }.as_str() == "idle" {
+            // FIXME: name 现已被用作 prctl 使用的程序名，应另选方式判断 idle 进程
+            t.is_idle = true;
+        }
+        t
+    }
+
+    pub fn new_common<F, T>(
+        fut: F,
+        name: String,
+        #[cfg(feature = "tls")] tls_area: (usize, usize),
+    ) -> Self 
+    where
+        F: FnOnce() -> T,
+        T: Future<Output = i32> + 'static + Send,
+    {
+        Self {
+            id: TaskId::new(),
+            is_idle: false,
+            is_init: false,
+            name: UnsafeCell::new(name),
+            #[cfg(feature = "preempt")]
+            need_resched: AtomicBool::new(false),
+            #[cfg(feature = "preempt")]
+            preempt_disable_count: AtomicUsize::new(0),
+            exit_code: AtomicI32::new(0),
+            #[cfg(feature = "tls")]
+            tls: TlsArea::alloc(tls_area.0, tls_area.1),
+            time: UnsafeCell::new(TimeStat::new()),
+            #[cfg(feature = "monolithic")]
+            process_id: AtomicU64::new(0),
+            #[cfg(feature = "monolithic")]
+            is_leader: AtomicBool::new(false),
+            #[cfg(feature = "monolithic")]
+            page_table_token: UnsafeCell::new(0),
+            #[cfg(feature = "monolithic")]
+            set_child_tid: AtomicU64::new(0),
+            #[cfg(feature = "monolithic")]
+            clear_child_tid: AtomicU64::new(0),
+            #[cfg(feature = "monolithic")]
+            // 一开始默认都可以运行在每个CPU上
+            cpu_set: AtomicU64::new(0),
+            #[cfg(feature = "monolithic")]
+            sched_status: UnsafeCell::new(SchedStatus {
+                policy: SchedPolicy::SCHED_FIFO,
+                priority: 1,
+            }),
+            #[cfg(feature = "monolithic")]
+            is_vforked_child: AtomicBool::new(false),
+            future: AtomicCell::new(Box::pin(fut())),
+            ctx_ref: UnsafeCell::new(NonNull::dangling()),
+        }
+    }
+
+    pub fn get_future(&self) -> *mut Pin<Box<dyn Future<Output = i32> + Send>> {
+        self.future.as_ptr()
+    }
+
+    pub fn set_ctx_ref(&self, ctx_ref: *mut TaskContext) {
+        unsafe { *self.ctx_ref.get() = NonNull::new(ctx_ref).unwrap(); };
+    }
+
+    pub fn get_ctx_ref(&self) -> *mut NonNull<TaskContext> {
+        self.ctx_ref.get()
+    }
+
+    pub fn get_ctx(&self) -> *mut TaskContext {
+        unsafe { *self.ctx_ref.get() }.as_ptr()
+    }
+
+    pub fn is_thread(&self) -> bool {
+        const DANGLE_PTR: usize = core::mem::align_of::<TaskContext>();
+        if self.get_ctx() as usize != DANGLE_PTR {
+            true
+        } else {
+            false
+        }
+    }
+
 }

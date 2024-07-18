@@ -1,6 +1,7 @@
 use core::arch::asm;
 use memory_addr::VirtAddr;
 
+#[cfg(not(feature = "async"))]
 /// Saved hardware states of a task.
 ///
 /// The context usually includes:
@@ -35,6 +36,93 @@ pub struct TaskContext {
 
     pub tp: usize,
     // TODO: FP states
+}
+
+#[cfg(feature = "async")]
+/// Saved hardware states of a task.
+///
+/// The context usually includes:
+///
+/// - Callee-saved registers
+/// - Stack pointer register
+/// - Thread pointer register (for thread-local storage, currently unsupported)
+/// - FP/SIMD registers
+///
+/// On context switch, current task saves its context from CPU to memory,
+/// and the next task restores its context from memory to CPU.
+#[allow(missing_docs)]
+#[repr(C)]
+#[derive(Debug, Default)]
+pub struct TaskContext {
+    pub ra: usize, // return address (x1)
+    pub sp: usize, // stack pointer (x2)
+
+    pub s0: usize, // x8-x9
+    pub s1: usize,
+
+    pub s2: usize, // x18-x27
+    pub s3: usize,
+    pub s4: usize,
+    pub s5: usize,
+    pub s6: usize,
+    pub s7: usize,
+    pub s8: usize,
+    pub s9: usize,
+    pub s10: usize,
+    pub s11: usize,
+    
+    pub tp: usize,
+    // TODO: FP states
+    pub gp: usize,
+    // t
+    pub t0: usize,
+    pub t1: usize,
+    pub t2: usize,
+    pub t3: usize,
+    pub t4: usize,
+    pub t5: usize,
+    pub t6: usize,
+    // a
+    pub a0: usize,
+    pub a1: usize,
+    pub a2: usize,
+    pub a3: usize,
+    pub a4: usize,
+    pub a5: usize,
+    pub a6: usize,
+    pub a7: usize,
+    /// Privilege information.
+    pub priv_info: PrivInfo,
+}
+
+#[cfg(feature = "async")]
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy)]
+pub enum PrivInfo {
+    SPrivilige(SPrivilige),
+    UPrivilige(UPrivilige),
+    #[default]
+    UnKnown
+}
+
+#[cfg(feature = "async")]
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SPrivilige {
+    pub sstatus: usize,
+    pub sepc: usize,
+    pub stvec: usize,
+    pub sie: usize,
+}
+
+#[cfg(feature = "async")]
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy)]
+pub struct UPrivilige {
+    pub ustatus: usize,
+    pub uepc: usize,
+    pub utvec: usize,
+    pub uie: usize,
 }
 
 impl TaskContext {

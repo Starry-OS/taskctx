@@ -13,6 +13,8 @@ fp_simd = []
 multitask = []
 tls = []
 monolithic = []
+async = ["crossbeam"]
+
 default = []
 [dependencies]
 log = "0.4"
@@ -21,6 +23,7 @@ memory_addr = { git = "https://github.com/Starry-OS/memory_addr.git" }
 lazy_init = { git = "https://github.com/Starry-OS/lazy_init.git" ,optional = true }
 static_assertions = "1.1.0"
 numeric-enum-macro = { git = "https://github.com/mexus/numeric-enum-macro" }
+crossbeam = { version = "0.8", default-features = false, features = ["alloc"], optional = true }
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 x86 = "0.52"
