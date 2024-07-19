@@ -217,3 +217,111 @@ pub unsafe extern "C" fn context_switch(_current_task: &mut TaskContext, _next_t
         options(noreturn),
     )
 }
+
+#[cfg(feature = "async")]
+const TASKCONTEXT_SIZE: usize = core::mem::size_of::<TaskContext>();
+
+#[cfg(feature = "async")]
+use core::ptr::NonNull;
+
+#[cfg(feature = "async")]
+extern "C" {
+    fn schedule_with_sp_change();
+}
+
+#[cfg(feature = "async")]
+#[naked]
+// Save the previous context to the stack.
+pub unsafe extern "C" fn save_prev_ctx(prev_ctx_ref: &mut NonNull<TaskContext>) {
+    core::arch::asm!(
+        "
+        addi    sp, sp, -{taskctx_size}
+        STR     ra, sp, 0
+        STR     sp, sp, 1
+        STR     s0, sp, 2
+        STR     s1, sp, 3
+        STR     s2, sp, 4
+        STR     s3, sp, 5
+        STR     s4, sp, 6
+        STR     s5, sp, 7
+        STR     s6, sp, 8
+        STR     s7, sp, 9
+        STR     s8, sp, 10
+        STR     s9, sp, 11
+        STR     s10, sp, 12
+        STR     s11, sp, 13
+        STR     tp, sp, 14
+        STR     gp, sp, 15
+        STR     t0, sp, 16
+        STR     t1, sp, 17
+        STR     t2, sp, 18
+        STR     t3, sp, 19
+        STR     t4, sp, 20
+        STR     t5, sp, 21
+        STR     t6, sp, 22
+        STR     a0, sp, 23
+        STR     a1, sp, 24
+        STR     a2, sp, 25
+        STR     a3, sp, 26
+        STR     a4, sp, 27
+        STR     a5, sp, 28
+        STR     a6, sp, 29
+        STR     a7, sp, 30
+        ",
+        // a0 -> ctx_ref
+        // sp -> *mut TaskContext
+        "STR     sp, a0, 0",
+        "call {schedule_with_sp_change}",
+        // // The stack has changed, if the next task is a coroutine, the execution will return to here.
+        // // But the ra is not correct.
+        // "ret",
+        taskctx_size = const TASKCONTEXT_SIZE,
+        schedule_with_sp_change = sym schedule_with_sp_change,
+        options(noreturn),
+    )
+}
+
+#[cfg(feature = "async")]
+#[naked]
+/// Load the next context from the stack.
+pub unsafe extern "C" fn load_next_ctx(next_ctx_ref: &mut NonNull<TaskContext>) {
+    core::arch::asm!(
+        "LDR     sp, a0, 0",
+        "
+        LDR     ra, sp, 0
+        LDR     sp, sp, 1
+        LDR     s0, sp, 2
+        LDR     s1, sp, 3
+        LDR     s2, sp, 4
+        LDR     s3, sp, 5
+        LDR     s4, sp, 6
+        LDR     s5, sp, 7
+        LDR     s6, sp, 8
+        LDR     s7, sp, 9
+        LDR     s8, sp, 10
+        LDR     s9, sp, 11
+        LDR     s10, sp, 12
+        LDR     s11, sp, 13
+        LDR     tp, sp, 14
+        LDR     gp, sp, 15
+        LDR     t0, sp, 16
+        LDR     t1, sp, 17
+        LDR     t2, sp, 18
+        LDR     t3, sp, 19
+        LDR     t4, sp, 20
+        LDR     t5, sp, 21
+        LDR     t6, sp, 22
+        LDR     a0, sp, 23
+        LDR     a1, sp, 24
+        LDR     a2, sp, 25
+        LDR     a3, sp, 26
+        LDR     a4, sp, 27
+        LDR     a5, sp, 28
+        LDR     a6, sp, 29
+        LDR     a7, sp, 30
+        addi    sp, sp, {taskctx_size}
+        ret",
+        taskctx_size = const TASKCONTEXT_SIZE,
+        options(noreturn),
+    )
+}

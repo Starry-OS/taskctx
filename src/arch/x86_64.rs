@@ -168,3 +168,17 @@ pub unsafe extern "C" fn context_switch(_current_stack: &mut u64, _next_stack: &
         options(noreturn),
     )
 }
+
+#[cfg(feature = "async")]
+#[naked]
+// Save the previous context to the stack.
+pub unsafe extern "C" fn save_prev_ctx(prev_ctx_ref: &mut core::ptr::NonNull<TaskContext>) {
+    core::arch::asm!("nop", options(noreturn))
+}
+
+#[cfg(feature = "async")]
+#[naked]
+/// Load the next context from the stack.
+pub unsafe extern "C" fn load_next_ctx(next_ctx_ref: &mut core::ptr::NonNull<TaskContext>) {
+    core::arch::asm!("nop", options(noreturn))
+}
