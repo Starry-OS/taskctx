@@ -294,9 +294,6 @@ pub unsafe extern "C" fn context_switch(_current_task: &mut TaskContext, _next_t
 }
 
 #[cfg(feature = "async")]
-const TASKCONTEXT_SIZE: usize = core::mem::size_of::<TaskContext>();
-
-#[cfg(feature = "async")]
 use core::ptr::NonNull;
 
 #[cfg(feature = "async")]
