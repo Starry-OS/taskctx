@@ -162,6 +162,13 @@ unsafe extern "C" fn fpstate_switch(_current_fpstate: &mut FpState, _next_fpstat
 #[cfg(feature = "async")]
 #[naked]
 /// Load the next context from the stack.
+pub unsafe extern "C" fn save_prev_ctx(prev_ctx_ref: &mut core::ptr::NonNull<TaskContext>) {
+    core::arch::asm!("nop", options(noreturn))
+}
+
+#[cfg(feature = "async")]
+#[naked]
+/// Load the next context from the stack.
 pub unsafe extern "C" fn load_next_ctx(next_ctx_ref: &mut core::ptr::NonNull<TaskContext>) {
     core::arch::asm!("nop", options(noreturn))
 }

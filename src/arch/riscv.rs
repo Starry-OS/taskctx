@@ -93,6 +93,11 @@ pub struct TaskContext {
     pub sstatus: usize,
     /// 浮点数寄存器
     pub fs: [usize; 2],
+    /// Context type
+    /// 0: trap context from supervisor mode
+    /// 1: trap context from user mode
+    /// 2: thread context in supervisor mode
+    pub ctx_type: usize,
 }
 
 #[cfg(feature = "async")]
@@ -298,13 +303,58 @@ use core::ptr::NonNull;
 
 #[cfg(feature = "async")]
 #[naked]
-/// Load the next context from the stack.
+/// Load the next context from the stack. The next task context has many type:
+///   1. trap context from supervisor mode.
+///   2. trap context from user mode.
+///   3. thread context in supervisor mode.
+///   
 pub unsafe extern "C" fn load_next_ctx(next_ctx_ref: &mut NonNull<TaskContext>) {
     core::arch::asm!(
         "LDR     sp, a0, 0",
+        // Clear the ctx_ref field.
         "li      a1, 8",
         "STR     a1, a0, 0",
+
+        "LDR     t0, sp, 35",   // get the context type
+        "beqz    t0, 0f",       // If the context type is 0(trap context from supervisor mode), jump to 0f
+        "addi    t0, t0, -1",   
+        "beqz    t0, 1f",       // If the context type is 1(trap context from user mode), jump to 1f
+        
+        // If the context type is 2(thread context in supervisor mode), jump to 2f
+        // TODO: handle the thread context in supervisor mode
+        "2:
+        LDR     ra, sp, 0
+        LDR     s0, sp, 7
+        LDR     s1, sp, 8
+        LDR     s2, sp, 17
+        LDR     s3, sp, 18
+        LDR     s4, sp, 19
+        LDR     s5, sp, 20
+        LDR     s6, sp, 21
+        LDR     s7, sp, 22
+        LDR     s8, sp, 23
+        LDR     s9, sp, 24
+        LDR     s10, sp, 25
+        LDR     s11, sp, 26
+        LDR     sp, sp, 1
+        addi    sp, sp, {task_context_size}
+        ret
+        ",
+        // store the supervisor gp & tp
+        "1:",
+        // set the sscratch not zero to indicate the next trap is from user mode
         "
+        addi    t0, sp, {task_context_size}
+        csrw    sscratch, t0",
+        "
+        LDR     t1, sp, 2
+        LDR     t0, sp, 3
+        STR     gp, sp, 2
+        STR     tp, sp, 3
+        mv      gp, t1
+        mv      tp, t0
+        ",
+        "0:
         LDR     t0, sp, 31
         LDR     t1, sp, 32
         csrw    sepc, t0
@@ -343,6 +393,50 @@ pub unsafe extern "C" fn load_next_ctx(next_ctx_ref: &mut NonNull<TaskContext>) 
         LDR     t6, sp, 30
         LDR     sp, sp, 1
         sret",
+        task_context_size = const TASK_CONTEXT_SIZE,
+        options(noreturn),
+    )
+}
+
+#[cfg(feature = "async")]
+extern "C" {
+    fn schedule_with_sp_change();
+}
+
+#[cfg(feature = "async")]
+const TASK_CONTEXT_SIZE: usize = core::mem::size_of::<TaskContext>();
+#[cfg(feature = "async")]
+#[naked]
+/// Load the next context from the stack.
+pub unsafe extern "C" fn save_prev_ctx(prev_ctx_ref: &mut core::ptr::NonNull<TaskContext>) {
+    core::arch::asm!(
+        "addi    sp, sp, -{task_context_size}",
+        "
+        STR     ra, sp, 0
+        STR     sp, sp, 1
+        STR     s0, sp, 7
+        STR     s1, sp, 8
+        STR     s2, sp, 17
+        STR     s3, sp, 18
+        STR     s4, sp, 19
+        STR     s5, sp, 20
+        STR     s6, sp, 21
+        STR     s7, sp, 22
+        STR     s8, sp, 23
+        STR     s9, sp, 24
+        STR     s10, sp, 25
+        STR     s11, sp, 26
+        ",
+        // save flag to the ctx_type field.
+        // to indicate this context is saved activitily.
+        "li     t0, 2",
+        "STR    t0, sp, 35",
+        // sp -> *mut TaskContext
+        // save the context pointer to the ctx_ref field.
+        "STR    sp, a0, 0",
+        "j     {schedule_with_sp_change}",
+        task_context_size = const TASK_CONTEXT_SIZE,
+        schedule_with_sp_change = sym schedule_with_sp_change,
         options(noreturn),
     )
 }

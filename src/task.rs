@@ -11,11 +11,11 @@ use core::{
     fmt,
     sync::atomic::{AtomicBool, AtomicI32, AtomicU64, AtomicU8, AtomicUsize, Ordering},
 };
+#[cfg(any(not(feature = "async"), all(feature = "monolithic", feature = "async")))]
+use {crate::TaskStack, memory_addr::align_up_4k};
+
 #[cfg(not(feature = "async"))]
-use {
-    crate::TaskStack,
-    memory_addr::{align_up_4k, VirtAddr}
-};
+use memory_addr::VirtAddr;
 
 #[cfg(feature = "async")]
 use {
@@ -153,7 +153,7 @@ pub struct TaskInner {
 
     exit_code: AtomicI32,
 
-    #[cfg(not(feature = "async"))]
+    #[cfg(any(not(feature = "async"), all(feature = "monolithic", feature = "async")))]
     /// The kernel stack of the task
     kstack: Option<TaskStack>,
 
@@ -236,14 +236,33 @@ impl TaskInner {
         alloc::format!("Task({}, {:?})", self.id.as_u64(), self.name())
     }
 
-    #[cfg(not(feature = "async"))]
     /// 获取内核栈栈顶
     #[inline]
     pub fn get_kernel_stack_top(&self) -> Option<usize> {
-        if let Some(kstack) = &self.kstack {
-            return Some(kstack.top().as_usize());
+        #[cfg(not(feature = "async"))]
+        {
+            if let Some(kstack) = &self.kstack {
+                return Some(kstack.top().as_usize());
+            }
+            None
         }
-        None
+        #[cfg(feature = "async")]
+        {
+            #[cfg(feature = "monolithic")]
+            if self.kstack.is_some() {
+                let kstack = self.kstack.as_ref().unwrap();
+                return Some(kstack.top().as_usize());
+            }
+            if self.is_thread() {
+                let taskctx = self.get_ctx() as *mut u8;
+                const TASK_CONTEXT_SIZE: usize = core::mem::size_of::<TaskContext>();
+                let top = unsafe { taskctx.add(TASK_CONTEXT_SIZE) } as usize;
+                return Some(top);
+            }
+            log::error!("get_kernel_stack_top: not a thread");
+            None
+        }
+        
     }
 
     #[cfg(not(feature = "async"))]
@@ -735,28 +754,6 @@ impl Drop for TaskInner {
 #[cfg(feature = "async")]
 impl TaskInner {
 
-    pub fn new<F, T>(
-        fut: F,
-        name: String,
-        #[cfg(feature = "tls")] tls_area: (usize, usize),
-    ) -> Self 
-    where
-        F: FnOnce() -> T,
-        T: Future<Output = i32> + 'static + Send,
-    {
-        let mut t = Self::new_common(
-            fut,
-            name,
-            #[cfg(feature = "tls")]
-            tls_area,
-        );
-        if unsafe { &*t.name.get() }.as_str() == "idle" {
-            // FIXME: name 现已被用作 prctl 使用的程序名，应另选方式判断 idle 进程
-            t.is_idle = true;
-        }
-        t
-    }
-
     pub fn new_init(
         name: String,
         #[cfg(feature = "tls")] tls_area: (usize, usize),
@@ -821,6 +818,8 @@ impl TaskInner {
             is_vforked_child: AtomicBool::new(false),
             future: AtomicCell::new(Box::pin(fut())),
             ctx_ref: UnsafeCell::new(NonNull::dangling()),
+            #[cfg(feature = "monolithic")]
+            kstack: None,
         }
     }
 
@@ -841,12 +840,84 @@ impl TaskInner {
     }
 
     pub fn is_thread(&self) -> bool {
+        let mut res = false;
+        #[cfg(feature = "monolithic")]
+        if self.kstack.is_some() {
+            res = true;
+        }
         const DANGLE_PTR: usize = core::mem::align_of::<TaskContext>();
         if self.get_ctx() as usize != DANGLE_PTR {
-            true
+            res = true;
         } else {
-            false
+            res = false;
         }
+        return res;
     }
 
+}
+
+#[cfg(all(feature = "async", not(feature = "monolithic")))]
+impl TaskInner {
+
+    pub fn new<F, T>(
+        fut: F,
+        name: String,
+        #[cfg(feature = "tls")] tls_area: (usize, usize),
+        _stack_size: usize,
+    ) -> Self 
+    where
+        F: FnOnce() -> T,
+        T: Future<Output = i32> + 'static + Send,
+    {
+        let mut t = Self::new_common(
+            fut,
+            name,
+            #[cfg(feature = "tls")]
+            tls_area,
+        );
+        if unsafe { &*t.name.get() }.as_str() == "idle" {
+            // FIXME: name 现已被用作 prctl 使用的程序名，应另选方式判断 idle 进程
+            t.is_idle = true;
+        }
+        t
+    }
+
+}
+
+#[cfg(all(feature = "monolithic", feature = "async"))]
+impl TaskInner {
+
+    /// Create a new task with the given entry function and stack size.
+    pub fn new<F, T>(
+        fut: F,
+        name: String,
+        _stack_size: usize,
+        process_id: u64,
+        page_table_token: usize,
+        #[cfg(feature = "tls")] tls_area: (usize, usize),
+    ) -> TaskInner
+    where
+        F: FnOnce() -> T,
+        T: Future<Output = i32> + 'static + Send,
+    {
+        let mut t = Self::new_common(
+            fut,
+            name,
+            #[cfg(feature = "tls")]
+            tls_area,
+        );
+        log::debug!("new task: {}", t.id_name());
+        let kstack = TaskStack::alloc(align_up_4k(_stack_size));
+
+        t.process_id.store(process_id, Ordering::Release);
+
+        t.page_table_token = UnsafeCell::new(page_table_token);
+
+        t.kstack = Some(kstack);
+        if unsafe { &*t.name.get() }.as_str() == "idle" {
+            // FIXME: name 现已被用作 prctl 使用的程序名，应另选方式判断 idle 进程
+            t.is_idle = true;
+        }
+        t
+    }
 }
