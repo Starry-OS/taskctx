@@ -752,6 +752,9 @@ impl Drop for TaskInner {
 }
 
 #[cfg(feature = "async")]
+const DANGLE_PTR: usize = core::mem::align_of::<TaskContext>();
+
+#[cfg(feature = "async")]
 impl TaskInner {
 
     pub fn new_init(
@@ -827,8 +830,21 @@ impl TaskInner {
         self.future.as_ptr()
     }
 
-    pub fn set_ctx_ref(&self, ctx_ref: *mut TaskContext) {
-        unsafe { *self.ctx_ref.get() = NonNull::new(ctx_ref).unwrap(); };
+    pub fn set_ctx_ref(&self, curr_ctx_ref: *mut TaskContext) {
+        unsafe {
+            let ctx_ptr = self.ctx_ref.get();
+            let prev_ctx_ptr = (*ctx_ptr).as_ptr() as usize;
+            if prev_ctx_ptr == DANGLE_PTR {
+                log::error!("set context. {:#X}", curr_ctx_ref as usize);
+                (*curr_ctx_ref).prev_ctx_ptr = 0;
+                *ctx_ptr = NonNull::new(curr_ctx_ref).unwrap();
+            } else {
+                log::error!("the context is nested. {:#X}", prev_ctx_ptr);
+                (*curr_ctx_ref).prev_ctx_ptr = prev_ctx_ptr;
+                *ctx_ptr = NonNull::new(curr_ctx_ref).unwrap();
+            }
+        }
+        // unsafe { *self.ctx_ref.get() = NonNull::new(ctx_ref).unwrap(); };
     }
 
     pub fn get_ctx_ref(&self) -> *mut NonNull<TaskContext> {
@@ -840,18 +856,11 @@ impl TaskInner {
     }
 
     pub fn is_thread(&self) -> bool {
-        let mut res = false;
-        #[cfg(feature = "monolithic")]
-        if self.kstack.is_some() {
-            res = true;
-        }
-        const DANGLE_PTR: usize = core::mem::align_of::<TaskContext>();
         if self.get_ctx() as usize != DANGLE_PTR {
-            res = true;
+            true
         } else {
-            res = false;
+            false
         }
-        return res;
     }
 
 }

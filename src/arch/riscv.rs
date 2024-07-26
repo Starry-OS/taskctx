@@ -98,6 +98,8 @@ pub struct TaskContext {
     /// 1: trap context from user mode
     /// 2: thread context in supervisor mode
     pub ctx_type: usize,
+    /// The previous task context pointer
+    pub prev_ctx_ptr: usize,
 }
 
 #[cfg(feature = "async")]
@@ -311,18 +313,22 @@ use core::ptr::NonNull;
 pub unsafe extern "C" fn load_next_ctx(next_ctx_ref: &mut NonNull<TaskContext>) {
     core::arch::asm!(
         "LDR     sp, a0, 0",
-        // Clear the ctx_ref field.
+        // check whether the context is nested.
+        "LDR     a1, sp, 36",    // If there is a nested context, a1 -> previous context pointer
+        "bnez    a1, 0f",       // There is a nested context, jump to -1f
         "li      a1, 8",
-        "STR     a1, a0, 0",
+        "0:",
+        // Set the ctx_ref field. 
+        // if a1 != 8, there is a nested context, the ctx_ref field must point to the previous context pointer.
+        "STR     a1, a0, 0",   
 
         "LDR     t0, sp, 35",   // get the context type
-        "beqz    t0, 0f",       // If the context type is 0(trap context from supervisor mode), jump to 0f
+        "beqz    t0, 1f",       // If the context type is 0(trap context from supervisor mode), jump to 1f
         "addi    t0, t0, -1",   
-        "beqz    t0, 1f",       // If the context type is 1(trap context from user mode), jump to 1f
+        "beqz    t0, 2f",       // If the context type is 1(trap context from user mode), jump to 2f
         
-        // If the context type is 2(thread context in supervisor mode), jump to 2f
-        // TODO: handle the thread context in supervisor mode
-        "2:
+        // If the context type is 2(thread context in supervisor mode), jump to 3f
+        "3:
         LDR     ra, sp, 0
         LDR     s0, sp, 7
         LDR     s1, sp, 8
@@ -341,7 +347,7 @@ pub unsafe extern "C" fn load_next_ctx(next_ctx_ref: &mut NonNull<TaskContext>) 
         ret
         ",
         // store the supervisor gp & tp
-        "1:",
+        "2:",
         // set the sscratch not zero to indicate the next trap is from user mode
         "
         addi    t0, sp, {task_context_size}
@@ -354,7 +360,7 @@ pub unsafe extern "C" fn load_next_ctx(next_ctx_ref: &mut NonNull<TaskContext>) 
         mv      gp, t1
         mv      tp, t0
         ",
-        "0:
+        "1:
         LDR     t0, sp, 31
         LDR     t1, sp, 32
         csrw    sepc, t0
