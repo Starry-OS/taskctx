@@ -835,11 +835,9 @@ impl TaskInner {
             let ctx_ptr = self.ctx_ref.get();
             let prev_ctx_ptr = (*ctx_ptr).as_ptr() as usize;
             if prev_ctx_ptr == DANGLE_PTR {
-                log::error!("set context. {:#X}", curr_ctx_ref as usize);
                 (*curr_ctx_ref).prev_ctx_ptr = 0;
                 *ctx_ptr = NonNull::new(curr_ctx_ref).unwrap();
             } else {
-                log::error!("the context is nested. {:#X}", prev_ctx_ptr);
                 (*curr_ctx_ref).prev_ctx_ptr = prev_ctx_ptr;
                 *ctx_ptr = NonNull::new(curr_ctx_ref).unwrap();
             }

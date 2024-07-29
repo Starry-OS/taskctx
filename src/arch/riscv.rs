@@ -300,121 +300,79 @@ pub unsafe extern "C" fn context_switch(_current_task: &mut TaskContext, _next_t
     )
 }
 
+
 #[cfg(feature = "async")]
-use core::ptr::NonNull;
+pub fn restore_ctx(ctx_ref: &'static mut core::ptr::NonNull<TaskContext>) {
+    let ctx = unsafe { &mut *ctx_ref.as_ptr() };
+    let prev_ctx_ptr = ctx.prev_ctx_ptr;
+    let mut new_ctx_ref = 8usize;
+    log::trace!("curr: {:#X}, prev {:#X}", ctx as *mut _ as usize, prev_ctx_ptr);
+    if prev_ctx_ptr != 0 {
+        new_ctx_ref = prev_ctx_ptr;
+    }
+    // set the ctx_ref field.
+    match ctx.ctx_type {
+        0 => unsafe {
+            log::trace!("back to supervisor trap, curr {:#X}, prev {:#X}", ctx as *mut _ as usize, new_ctx_ref);
+            riscv::register::sstatus::clear_sie();
+            trap_restore(ctx_ref, false, new_ctx_ref) 
+        },
+        1 => unsafe { 
+            log::trace!("back to user trap, curr {:#X}, prev {:#X}", ctx as *mut _ as usize, new_ctx_ref);
+            riscv::register::sstatus::clear_sie();
+            trap_restore(ctx_ref, true, new_ctx_ref) 
+        },
+        2 => unsafe  { 
+            log::trace!("back to supervisor thread, curr {:#X}, prev {:#X}", ctx as *mut _ as usize, new_ctx_ref);
+            thread_restore(ctx_ref, new_ctx_ref)
+        },
+        _ => { core::panic!("Invalid context type: {:#X}", ctx.ctx_type); },
+    }
+}
 
 #[cfg(feature = "async")]
 #[naked]
-/// Load the next context from the stack. The next task context has many type:
-///   1. trap context from supervisor mode.
-///   2. trap context from user mode.
-///   3. thread context in supervisor mode.
-///   
-pub unsafe extern "C" fn load_next_ctx(next_ctx_ref: &mut NonNull<TaskContext>) {
+unsafe extern "C" fn thread_restore(ctx_ref: &mut core::ptr::NonNull<TaskContext>, prev_ctx_ptr: usize) {
     core::arch::asm!(
-        "LDR     sp, a0, 0",
-        // check whether the context is nested.
-        "LDR     a1, sp, 36",    // If there is a nested context, a1 -> previous context pointer
-        "bnez    a1, 0f",       // There is a nested context, jump to -1f
-        "li      a1, 8",
-        "0:",
-        // Set the ctx_ref field. 
-        // if a1 != 8, there is a nested context, the ctx_ref field must point to the previous context pointer.
-        "STR     a1, a0, 0",   
-
-        "LDR     t0, sp, 35",   // get the context type
-        "beqz    t0, 1f",       // If the context type is 0(trap context from supervisor mode), jump to 1f
-        "addi    t0, t0, -1",   
-        "beqz    t0, 2f",       // If the context type is 1(trap context from user mode), jump to 2f
-        
-        // If the context type is 2(thread context in supervisor mode), jump to 3f
-        "3:
-        LDR     ra, sp, 0
-        LDR     s0, sp, 7
-        LDR     s1, sp, 8
-        LDR     s2, sp, 17
-        LDR     s3, sp, 18
-        LDR     s4, sp, 19
-        LDR     s5, sp, 20
-        LDR     s6, sp, 21
-        LDR     s7, sp, 22
-        LDR     s8, sp, 23
-        LDR     s9, sp, 24
-        LDR     s10, sp, 25
-        LDR     s11, sp, 26
-        LDR     sp, sp, 1
-        addi    sp, sp, {task_context_size}
-        ret
-        ",
-        // store the supervisor gp & tp
-        "2:",
-        // set the sscratch not zero to indicate the next trap is from user mode
-        "
-        addi    t0, sp, {task_context_size}
-        csrw    sscratch, t0",
-        "
-        LDR     t1, sp, 2
-        LDR     t0, sp, 3
-        STR     gp, sp, 2
-        STR     tp, sp, 3
-        mv      gp, t1
-        mv      tp, t0
-        ",
-        "1:
-        LDR     t0, sp, 31
-        LDR     t1, sp, 32
-        csrw    sepc, t0
-        csrw    sstatus, t1
-        .short  0x2432
-        .short  0x24d2
-        ",
-        "
-        LDR     ra, sp, 0
-        LDR     t0, sp, 4
-        LDR     t1, sp, 5
-        LDR     t2, sp, 6
-        LDR     s0, sp, 7
-        LDR     s1, sp, 8
-        LDR     a0, sp, 9
-        LDR     a1, sp, 10
-        LDR     a2, sp, 11
-        LDR     a3, sp, 12
-        LDR     a4, sp, 13
-        LDR     a5, sp, 14
-        LDR     a6, sp, 15
-        LDR     a7, sp, 16
-        LDR     s2, sp, 17
-        LDR     s3, sp, 18
-        LDR     s4, sp, 19
-        LDR     s5, sp, 20
-        LDR     s6, sp, 21
-        LDR     s7, sp, 22
-        LDR     s8, sp, 23
-        LDR     s9, sp, 24
-        LDR     s10, sp, 25
-        LDR     s11, sp, 26
-        LDR     t3, sp, 27
-        LDR     t4, sp, 28
-        LDR     t5, sp, 29
-        LDR     t6, sp, 30
-        LDR     sp, sp, 1
-        sret",
-        task_context_size = const TASK_CONTEXT_SIZE,
+        "LDR     s0, a0, 0",
+        "STR     a1, a0, 0",
+        "mv      a0, s0",
+        "j    {switch_to_ctx}",
+        switch_to_ctx = sym switch_to_ctx,
         options(noreturn),
     )
 }
 
 #[cfg(feature = "async")]
-extern "C" {
-    fn schedule_with_sp_change();
+#[naked]
+unsafe extern "C" fn trap_restore(ctx_ref: &mut core::ptr::NonNull<TaskContext>, to_user: bool, prev_ctx_ptr: usize) {
+    core::arch::asm!(
+        "LDR     sp, a0, 0",
+        "STR     a2, a0, 0",
+        "beqz    a1, 0f",       // to_user == false, restore to supervisor mode
+        "RESTORE_REGS 1",
+        "sret",
+        "0:",
+        "RESTORE_REGS 0",
+        "sret",
+        options(noreturn),
+    )
 }
 
 #[cfg(feature = "async")]
-const TASK_CONTEXT_SIZE: usize = core::mem::size_of::<TaskContext>();
+pub fn yield_to_new_ctx(prev_ctx_ref: &mut core::ptr::NonNull<TaskContext>, new_ctx: &mut TaskContext) {
+    let prev_ctx_ptr = prev_ctx_ref.as_ptr() as usize;
+    if prev_ctx_ptr == TASK_CONTEXT_ALIGN {     // No nested context.
+        unsafe { yield_switch(prev_ctx_ref, new_ctx, 0); }
+    } else {                                    // There is a nested context.
+        log::debug!("Nested context.");
+        unsafe { yield_switch(prev_ctx_ref, new_ctx, prev_ctx_ptr); }
+    }
+}
+
 #[cfg(feature = "async")]
 #[naked]
-/// Load the next context from the stack.
-pub unsafe extern "C" fn save_prev_ctx(prev_ctx_ref: &mut core::ptr::NonNull<TaskContext>) {
+unsafe extern "C" fn yield_switch(_prev_ctx_ref: &mut core::ptr::NonNull<TaskContext>, _new_ctx: &mut TaskContext, prev_ctx_ptr: usize) {
     core::arch::asm!(
         "addi    sp, sp, -{task_context_size}",
         "
@@ -435,14 +393,50 @@ pub unsafe extern "C" fn save_prev_ctx(prev_ctx_ref: &mut core::ptr::NonNull<Tas
         ",
         // save flag to the ctx_type field.
         // to indicate this context is saved activitily.
-        "li     t0, 2",
-        "STR    t0, sp, 35",
-        // sp -> *mut TaskContext
+        "li     s0, 2",
+        "STR    s0, sp, 35",
+        // set the prev_ctx_ptr field.
+        "STR    a2, sp, 36",
         // save the context pointer to the ctx_ref field.
         "STR    sp, a0, 0",
-        "j     {schedule_with_sp_change}",
+        // load the new context.
+        "mv     a0, a1",
+        "j   {switch_to_ctx}",
         task_context_size = const TASK_CONTEXT_SIZE,
-        schedule_with_sp_change = sym schedule_with_sp_change,
+        switch_to_ctx = sym switch_to_ctx,
+        options(noreturn),
+    )
+}
+
+#[cfg(feature = "async")]
+const TASK_CONTEXT_SIZE: usize = core::mem::size_of::<TaskContext>();
+#[cfg(feature = "async")]
+const TASK_CONTEXT_ALIGN: usize = core::mem::align_of::<TaskContext>();
+
+#[cfg(feature = "async")]
+#[naked]
+/// Load the next context from the stack.
+pub unsafe extern "C" fn switch_to_ctx(_new_ctx: &mut TaskContext) {
+    core::arch::asm!(
+        "
+        LDR     ra, a0, 0
+        LDR     sp, a0, 1
+        LDR     s0, a0, 7
+        LDR     s1, a0, 8
+        LDR     s2, a0, 17
+        LDR     s3, a0, 18
+        LDR     s4, a0, 19
+        LDR     s5, a0, 20
+        LDR     s6, a0, 21
+        LDR     s7, a0, 22
+        LDR     s8, a0, 23
+        LDR     s9, a0, 24
+        LDR     s10, a0, 25
+        LDR     s11, a0, 26
+        addi    sp, sp, {task_context_size}
+        ret
+        ",
+        task_context_size = const TASK_CONTEXT_SIZE,
         options(noreturn),
     )
 }
