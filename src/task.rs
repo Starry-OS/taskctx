@@ -13,6 +13,7 @@ use core::{
 };
 use memory_addr::{align_up_4k, VirtAddr};
 
+pub const MAX_RT_PRIO: usize = 99;
 /// A unique identifier for a thread.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct TaskId(u64);
@@ -48,7 +49,7 @@ impl Default for TaskId {
 /// The policy of the scheduler
 pub enum SchedPolicy {
     /// The default time-sharing scheduler
-    SCHED_OTHER = 0,
+    SCHED_NORMAL = 0,
     /// The first-in, first-out scheduler
     SCHED_FIFO = 1,
     /// The round-robin scheduler
@@ -57,6 +58,8 @@ pub enum SchedPolicy {
     SCHED_BATCH = 3,
     /// The idle task scheduler
     SCHED_IDLE = 5,
+    /// The deadline scheduler
+    SCHED_DEADLINE = 6,
     /// Unknown scheduler
     SCHED_UNKNOWN,
 }
@@ -65,11 +68,12 @@ impl From<usize> for SchedPolicy {
     #[inline]
     fn from(policy: usize) -> Self {
         match policy {
-            0 => SchedPolicy::SCHED_OTHER,
+            0 => SchedPolicy::SCHED_NORMAL,
             1 => SchedPolicy::SCHED_FIFO,
             2 => SchedPolicy::SCHED_RR,
             3 => SchedPolicy::SCHED_BATCH,
             5 => SchedPolicy::SCHED_IDLE,
+            6 => SchedPolicy::SCHED_DEADLINE,
             _ => SchedPolicy::SCHED_UNKNOWN,
         }
     }
@@ -79,11 +83,12 @@ impl From<SchedPolicy> for isize {
     #[inline]
     fn from(policy: SchedPolicy) -> Self {
         match policy {
-            SchedPolicy::SCHED_OTHER => 0,
+            SchedPolicy::SCHED_NORMAL => 0,
             SchedPolicy::SCHED_FIFO => 1,
             SchedPolicy::SCHED_RR => 2,
             SchedPolicy::SCHED_BATCH => 3,
             SchedPolicy::SCHED_IDLE => 5,
+            SchedPolicy::SCHED_DEADLINE => 6,
             SchedPolicy::SCHED_UNKNOWN => -1,
         }
     }
