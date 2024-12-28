@@ -113,6 +113,6 @@ pub unsafe extern "C" fn context_switch(_current_task: &mut TaskContext, _next_t
 }
 
 #[cfg(feature = "fp_simd")]
-extern "C"  {
+extern "C" {
     fn fpstate_switch(_current_fpstate: &mut FpState, _next_fpstate: &FpState);
 }
