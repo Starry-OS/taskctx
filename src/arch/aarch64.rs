@@ -114,6 +114,8 @@ pub unsafe extern "C" fn context_switch(_current_task: &mut TaskContext, _next_t
 }
 
 #[cfg(feature = "fp_simd")]
-extern "C" {
+unsafe extern "C" {
+    // FIXME: `extern` block uses type `u128`, which is not FFI-safe
+    // 128-bit integers don't currently have a known stable ABI
     fn fpstate_switch(_current_fpstate: &mut FpState, _next_fpstate: &FpState);
 }
