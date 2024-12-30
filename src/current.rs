@@ -79,7 +79,9 @@ impl CURRENT_TASK_PTR_WRAPPER {
             #[cfg(not(target_arch = "x86_64"))]
             {
                 #[cfg(target_arch = "aarch64")]
-                core::arch::asm!("mrs {}, TPIDR_EL1", out(reg) base);
+                unsafe {
+                    core::arch::asm!("mrs {}, TPIDR_EL1", out(reg) base);
+                }
                 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
                 core::arch::asm! ("mv {}, gp", out(reg) base);
                 (base + self.offset()) as *const usize
@@ -155,7 +157,7 @@ impl CURRENT_TASK_PTR_WRAPPER {
             }
             #[cfg(not(any(target_arch = "riscv64", target_arch = "x86_64")))]
             {
-                *self.current_ptr()
+                unsafe { *self.current_ptr() }
             }
         }
         #[cfg(target_os = "macos")]
@@ -193,7 +195,7 @@ impl CURRENT_TASK_PTR_WRAPPER {
             }
             #[cfg(not(any(target_arch = "riscv64", target_arch = "x86_64")))]
             {
-                *(self.current_ptr() as *mut usize) = val
+                unsafe { *(self.current_ptr() as *mut usize) = val }
             }
         }
         #[cfg(target_os = "macos")]
