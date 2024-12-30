@@ -9,10 +9,9 @@
 //! - `stat`: Task statistics.
 //!
 //! - `preempt_disable_count`: Preemption disable counter. Only when the counter is zero, the
-//! task can be preempted. It can be used to implement preemption protection lock.
+//!   task can be preempted. It can be used to implement preemption protection lock.
 #![no_std]
 #![feature(naked_functions)]
-#![feature(asm_const)]
 
 mod arch;
 mod current;
