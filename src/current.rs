@@ -83,7 +83,9 @@ impl CURRENT_TASK_PTR_WRAPPER {
                     core::arch::asm!("mrs {}, TPIDR_EL1", out(reg) base);
                 }
                 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-                core::arch::asm! ("mv {}, gp", out(reg) base);
+                unsafe {
+                    core::arch::asm! ("mv {}, gp", out(reg) base);
+                }
                 (base + self.offset()) as *const usize
             }
         }
@@ -134,13 +136,15 @@ impl CURRENT_TASK_PTR_WRAPPER {
             #[cfg(target_arch = "riscv64")]
             {
                 let value: usize;
-                core::arch::asm!(
-                    "lui {0}, %hi({VAR})",
-                    "add {0}, {0}, gp",
-                    "ld {0}, %lo({VAR})({0})",
-                    out(reg) value,
-                    VAR = sym __PERCPU_CURRENT_TASK_PTR,
-                );
+                unsafe {
+                    core::arch::asm!(
+                        "lui {0}, %hi({VAR})",
+                        "add {0}, {0}, gp",
+                        "ld {0}, %lo({VAR})({0})",
+                        out(reg) value,
+                        VAR = sym __PERCPU_CURRENT_TASK_PTR,
+                    );
+                }
                 value
             }
             #[cfg(target_arch = "x86_64")]
@@ -175,13 +179,15 @@ impl CURRENT_TASK_PTR_WRAPPER {
         {
             #[cfg(target_arch = "riscv64")]
             {
-                core::arch::asm!(
-                    "lui {0}, %hi({VAR})",
-                    "add {0}, {0}, gp",
-                    "sd {1}, %lo({VAR})({0})",
-                    out(reg) _, in(reg) val,
-                    VAR = sym __PERCPU_CURRENT_TASK_PTR
-                );
+                unsafe {
+                    core::arch::asm!(
+                        "lui {0}, %hi({VAR})",
+                        "add {0}, {0}, gp",
+                        "sd {1}, %lo({VAR})({0})",
+                        out(reg) _, in(reg) val,
+                        VAR = sym __PERCPU_CURRENT_TASK_PTR
+                    );
+                }
             }
             #[cfg(target_arch = "x86_64")]
             {
@@ -258,7 +264,9 @@ pub unsafe fn set_current_task_ptr<T>(ptr: *const T) {
     #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
     {
         let flags = local_irq_save_and_disable();
-        CURRENT_TASK_PTR.write_current_raw(ptr as usize);
+        unsafe {
+            CURRENT_TASK_PTR.write_current_raw(ptr as usize);
+        }
         local_irq_restore(flags)
     }
     #[cfg(target_arch = "aarch64")]
