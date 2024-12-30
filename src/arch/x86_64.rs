@@ -1,4 +1,4 @@
-use core::{arch::asm, fmt};
+use core::{arch::naked_asm, fmt};
 use memory_addr::VirtAddr;
 
 #[repr(C)]
@@ -143,12 +143,12 @@ impl TaskContext {
 
     pub fn thread_saved_fp(&self) -> usize {
         let frame_ptr = self.rsp as *const ContextSwitchFrame;
-        unsafe {(*frame_ptr).rbp as usize}
+        unsafe { (*frame_ptr).rbp as usize }
     }
 
     pub fn thread_saved_pc(&self) -> usize {
         let frame_ptr = self.rsp as *const ContextSwitchFrame;
-        unsafe {(*frame_ptr).rip as usize}
+        unsafe { (*frame_ptr).rip as usize }
     }
 }
 
@@ -159,7 +159,7 @@ impl TaskContext {
 ///
 /// This function is unsafe because it directly manipulates the CPU registers.
 pub unsafe extern "C" fn context_switch(_current_stack: &mut u64, _next_stack: &u64) {
-    asm!(
+    naked_asm!(
         "
         push    rbp
         push    rbx
@@ -177,6 +177,5 @@ pub unsafe extern "C" fn context_switch(_current_stack: &mut u64, _next_stack: &
         pop     rbx
         pop     rbp
         ret",
-        options(noreturn),
     )
 }

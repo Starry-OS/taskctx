@@ -15,8 +15,7 @@ extern "C" {
 
 impl TaskStack {
     pub fn new_init() -> Self {
-        let layout = 
-            Layout::from_size_align(axconfig::TASK_STACK_SIZE, 16).unwrap();
+        let layout = Layout::from_size_align(axconfig::TASK_STACK_SIZE, 16).unwrap();
         unsafe {
             Self {
                 ptr: NonNull::new(current_boot_stack()).unwrap(),

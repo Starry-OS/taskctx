@@ -1,6 +1,6 @@
 use std::env;
-use std::process::Command;
 use std::path::PathBuf;
+use std::process::Command;
 
 fn aarch64_vfp_compile() {
     // 获取当前 crate 输出目录
@@ -12,10 +12,13 @@ fn aarch64_vfp_compile() {
     // 编译汇编文件，增加 target-feature 选项
     let status = Command::new("clang")
         .args(&[
-            "-c", asm_file.to_str().unwrap(),
-            "-o", asm_out_file.to_str().unwrap(),
-            "-target", "aarch64-unknown-none",
-            "-mfpu=neon"
+            "-c",
+            asm_file.to_str().unwrap(),
+            "-o",
+            asm_out_file.to_str().unwrap(),
+            "-target",
+            "aarch64-unknown-none",
+            "-mfpu=neon",
         ])
         .status()
         .expect("failed to execute clang");
@@ -24,7 +27,11 @@ fn aarch64_vfp_compile() {
     // 打包对象文件为静态库
     let lib_out_file = PathBuf::from(&out_dir).join("libvfp.a");
     let status = Command::new("ar")
-        .args(&["crus", lib_out_file.to_str().unwrap(), asm_out_file.to_str().unwrap()])
+        .args(&[
+            "crus",
+            lib_out_file.to_str().unwrap(),
+            asm_out_file.to_str().unwrap(),
+        ])
         .status()
         .expect("failed to execute ar");
     assert!(status.success(), "ar failed to create static library");

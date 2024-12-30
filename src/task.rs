@@ -486,7 +486,6 @@ impl TaskInner {
         unsafe { *status }
     }
 
-
     #[cfg(target_arch = "x86_64")]
     /// # Safety
     /// It is unsafe because it may cause undefined behavior if the `fs_base` is not a valid address.
@@ -555,7 +554,7 @@ impl TaskInner {
                 policy: SchedPolicy::SCHED_FIFO,
                 priority: 1,
             }),
-            
+
             #[cfg(feature = "monolithic")]
             is_vforked_child: AtomicBool::new(false),
         }
@@ -581,7 +580,7 @@ impl TaskInner {
             // FIXME: name 现已被用作 prctl 使用的程序名，应另选方式判断 idle 进程
             t.is_idle = true;
         }
-        t.kstack =  Some(TaskStack::new_init());
+        t.kstack = Some(TaskStack::new_init());
         t
     }
 
@@ -606,7 +605,10 @@ impl TaskInner {
     /// return ctx unwind
     #[inline]
     pub fn ctx_unwind(&self) -> (usize, usize) {
-        (self.get_ctx().thread_saved_pc(), self.get_ctx().thread_saved_fp())
+        (
+            self.get_ctx().thread_saved_pc(),
+            self.get_ctx().thread_saved_fp(),
+        )
     }
 
     /// Set the task waiting for reschedule
