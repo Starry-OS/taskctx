@@ -1,7 +1,7 @@
 #[cfg(feature = "tls")]
 use crate::tls::TlsArea;
 
-use crate::{arch::TaskContext, TaskStack, TimeStat};
+use crate::{TaskStack, TimeStat, arch::TaskContext};
 extern crate alloc;
 use alloc::{boxed::Box, string::String};
 
@@ -9,9 +9,9 @@ use alloc::{boxed::Box, string::String};
 use core::{
     cell::UnsafeCell,
     fmt,
-    sync::atomic::{AtomicBool, AtomicI32, AtomicU64, AtomicU8, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, AtomicUsize, Ordering},
 };
-use memory_addr::{align_up_4k, VirtAddr};
+use memory_addr::{VirtAddr, align_up_4k};
 
 /// A unique identifier for a thread.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -490,7 +490,9 @@ impl TaskInner {
     /// # Safety
     /// It is unsafe because it may cause undefined behavior if the `fs_base` is not a valid address.
     pub unsafe fn set_tls_force(&self, value: usize) {
-        self.ctx.get().as_mut().unwrap().fs_base = value;
+        unsafe {
+            self.ctx.get().as_mut().unwrap().fs_base = value;
+        }
     }
 
     /// To set whether the task will be blocked by a vfork child
