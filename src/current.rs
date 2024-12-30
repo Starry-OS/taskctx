@@ -1,17 +1,19 @@
+use core::arch::asm;
+
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 #[inline]
 fn local_irq_save_and_disable() -> usize {
     const SIE_BIT: usize = 1 << 1;
     let flags: usize;
     // clear the `SIE` bit, and return the old CSR
-    unsafe { core::arch::asm!("csrrc {}, sstatus, {}", out(reg) flags, const SIE_BIT) };
+    unsafe { asm!("csrrc {}, sstatus, {}", out(reg) flags, const SIE_BIT) };
     flags & SIE_BIT
 }
 
 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
 fn local_irq_restore(flags: usize) {
     // restore the `SIE` bit
-    unsafe { core::arch::asm!("csrrs x0, sstatus, {}", in(reg) flags) };
+    unsafe { asm!("csrrs x0, sstatus, {}", in(reg) flags) };
 }
 
 #[cfg_attr(not(target_os = "macos"), unsafe(link_section = ".percpu"))]
@@ -31,21 +33,21 @@ impl CURRENT_TASK_PTR_WRAPPER {
         let value: usize;
         unsafe {
             #[cfg(target_arch = "x86_64")]
-            core::arch::asm!(
+            asm!(
                 "movabs {0}, offset {VAR}",
                 out(reg) value,
                 VAR = sym __PERCPU_CURRENT_TASK_PTR,
             );
 
             #[cfg(target_arch = "aarch64")]
-            core::arch::asm!(
+            asm!(
                 "movz {0}, #:abs_g0_nc:{VAR}",
                 out(reg) value,
                 VAR = sym __PERCPU_CURRENT_TASK_PTR,
             );
 
             #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
-            core::arch::asm!(
+            asm!(
                 "lui {0}, %hi({VAR})",
                 "addi {0}, {0}, %lo({VAR})",
                 out(reg) value,
@@ -67,24 +69,24 @@ impl CURRENT_TASK_PTR_WRAPPER {
             #[cfg(target_arch = "x86_64")]
             {
                 unsafe {
-                    core::arch::asm!(
+                    asm!(
                         "mov {0}, gs:[offset __PERCPU_SELF_PTR]",
                         "add {0}, offset {VAR}",
                         out(reg) base,
                         VAR = sym __PERCPU_CURRENT_TASK_PTR,
-                    )
-                };
+                    );
+                }
                 base as *const usize
             }
             #[cfg(not(target_arch = "x86_64"))]
             {
                 #[cfg(target_arch = "aarch64")]
                 unsafe {
-                    core::arch::asm!("mrs {}, TPIDR_EL1", out(reg) base);
+                    asm!("mrs {}, TPIDR_EL1", out(reg) base);
                 }
                 #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))]
                 unsafe {
-                    core::arch::asm! ("mv {}, gp", out(reg) base);
+                    asm! ("mv {}, gp", out(reg) base);
                 }
                 (base + self.offset()) as *const usize
             }
@@ -137,7 +139,7 @@ impl CURRENT_TASK_PTR_WRAPPER {
             {
                 let value: usize;
                 unsafe {
-                    core::arch::asm!(
+                    asm!(
                         "lui {0}, %hi({VAR})",
                         "add {0}, {0}, gp",
                         "ld {0}, %lo({VAR})({0})",
@@ -151,7 +153,7 @@ impl CURRENT_TASK_PTR_WRAPPER {
             {
                 let value: usize;
                 unsafe {
-                    core::arch::asm!(
+                    asm!(
                         "mov {0:r}, qword ptr gs:[offset {VAR}]",
                         out(reg) value,
                         VAR = sym __PERCPU_CURRENT_TASK_PTR
@@ -180,7 +182,7 @@ impl CURRENT_TASK_PTR_WRAPPER {
             #[cfg(target_arch = "riscv64")]
             {
                 unsafe {
-                    core::arch::asm!(
+                    asm!(
                         "lui {0}, %hi({VAR})",
                         "add {0}, {0}, gp",
                         "sd {1}, %lo({VAR})({0})",
@@ -192,7 +194,7 @@ impl CURRENT_TASK_PTR_WRAPPER {
             #[cfg(target_arch = "x86_64")]
             {
                 unsafe {
-                    core::arch::asm!(
+                    asm!(
                         "mov qword ptr gs:[offset {VAR}], {0:r}",
                         in(reg) val,
                         VAR = sym __PERCPU_CURRENT_TASK_PTR
