@@ -9,7 +9,7 @@ pub(crate) struct TaskStack {
 }
 
 // arch_boot
-extern "C" {
+unsafe extern "C" {
     fn current_boot_stack() -> *mut u8;
 }
 

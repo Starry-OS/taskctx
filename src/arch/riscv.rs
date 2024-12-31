@@ -1,4 +1,4 @@
-use core::arch::asm;
+use core::arch::naked_asm;
 use memory_addr::VirtAddr;
 
 /// Saved hardware states of a task.
@@ -52,11 +52,11 @@ impl TaskContext {
     }
 
     pub fn thread_saved_fp(&self) -> usize {
-        self.s0 as usize
+        self.s0
     }
 
     pub fn thread_saved_pc(&self) -> usize {
-        self.ra as usize
+        self.ra
     }
 }
 
@@ -99,8 +99,9 @@ core::arch::global_asm!(
 ///
 /// This function is unsafe because it directly manipulates the CPU registers.
 pub unsafe extern "C" fn context_switch(_current_task: &mut TaskContext, _next_task: &TaskContext) {
-    asm!(
-        "
+    unsafe {
+        naked_asm!(
+            "
         // save old context (callee-saved registers)
         STR     ra, a0, 0
         STR     sp, a0, 1
@@ -134,6 +135,6 @@ pub unsafe extern "C" fn context_switch(_current_task: &mut TaskContext, _next_t
         LDR     ra, a1, 0
 
         ret",
-        options(noreturn),
-    )
+        )
+    }
 }

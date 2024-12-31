@@ -105,6 +105,12 @@ pub struct TaskContext {
     pub ext_state: ExtendedState,
 }
 
+impl Default for TaskContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TaskContext {
     /// Creates a new default context for a new task.
     pub const fn new() -> Self {
@@ -127,14 +133,11 @@ impl TaskContext {
             let frame_ptr = (kstack_top.as_mut_ptr() as *mut u64).sub(1);
             let rbp = frame_ptr as u64;
             let frame_ptr = (frame_ptr as *mut ContextSwitchFrame).sub(1);
-            core::ptr::write(
-                frame_ptr,
-                ContextSwitchFrame {
-                    rip: entry as _,
-                    rbp: rbp,
-                    ..Default::default()
-                },
-            );
+            core::ptr::write(frame_ptr, ContextSwitchFrame {
+                rip: entry as _,
+                rbp,
+                ..Default::default()
+            });
             self.rsp = frame_ptr as u64;
         }
         self.kstack_top = kstack_top;
@@ -159,8 +162,9 @@ impl TaskContext {
 ///
 /// This function is unsafe because it directly manipulates the CPU registers.
 pub unsafe extern "C" fn context_switch(_current_stack: &mut u64, _next_stack: &u64) {
-    naked_asm!(
-        "
+    unsafe {
+        naked_asm!(
+            "
         push    rbp
         push    rbx
         push    r12
@@ -177,5 +181,6 @@ pub unsafe extern "C" fn context_switch(_current_stack: &mut u64, _next_stack: &
         pop     rbx
         pop     rbp
         ret",
-    )
+        )
+    }
 }
