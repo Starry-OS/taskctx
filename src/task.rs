@@ -1,24 +1,22 @@
 #[cfg(feature = "tls")]
 use crate::tls::TlsArea;
 
-use crate::{TaskStack, TimeStat, arch::TaskContext};
 extern crate alloc;
+use crate::{TaskStack, TimeStat, arch::TaskContext};
 use alloc::{boxed::Box, string::String};
-
-#[allow(unused_imports)]
 use core::{
     cell::UnsafeCell,
     fmt,
-    sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU64, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
 };
 use memory_addr::{VirtAddr, align_up_4k};
 
 /// A unique identifier for a thread.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub struct TaskId(u64);
+pub struct TaskId(usize);
 pub const MAX_RT_PRIO: usize = 99;
 
-static ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+static ID_COUNTER: AtomicUsize = AtomicUsize::new(1);
 impl TaskId {
     /// Create a new task ID.
     pub fn new() -> Self {
@@ -27,7 +25,7 @@ impl TaskId {
 
     /// Convert the task ID to a `u64`.
     pub const fn as_u64(&self) -> u64 {
-        self.0
+        self.0 as u64
     }
 
     #[cfg(feature = "monolithic")]
@@ -152,7 +150,7 @@ pub struct TaskInner {
     ctx: UnsafeCell<TaskContext>,
 
     #[cfg(feature = "monolithic")]
-    process_id: AtomicU64,
+    process_id: AtomicUsize,
 
     #[cfg(feature = "monolithic")]
     /// 是否是所属进程下的主线程
@@ -166,20 +164,20 @@ pub struct TaskInner {
     pub page_table_token: UnsafeCell<usize>,
 
     #[cfg(feature = "monolithic")]
-    set_child_tid: AtomicU64,
+    set_child_tid: AtomicUsize,
 
     #[cfg(feature = "monolithic")]
-    clear_child_tid: AtomicU64,
+    clear_child_tid: AtomicUsize,
 
     /// 时间统计, 无论是否为宏内核架构都可能被使用到
     #[allow(unused)]
     time: UnsafeCell<TimeStat>,
 
-    #[cfg(feature = "monolithic")]
     /// TODO: to support the sched_setaffinity
     ///
     /// TODO: move to the upper layer
-    pub cpu_set: AtomicU64,
+    #[cfg(feature = "monolithic")]
+    pub cpu_set: AtomicUsize,
 
     #[cfg(feature = "monolithic")]
     /// The scheduler status of the task, which defines the scheduling policy and priority
@@ -258,7 +256,7 @@ impl TaskInner {
 
         t.entry = Some(Box::into_raw(Box::new(entry)));
 
-        t.process_id.store(process_id, Ordering::Release);
+        t.process_id.store(process_id as _, Ordering::Release);
 
         t.page_table_token = UnsafeCell::new(page_table_token);
 
@@ -398,17 +396,17 @@ impl TaskInner {
 impl TaskInner {
     /// store the child thread ID at the location pointed to by child_tid in clone args
     pub fn set_child_tid(&self, tid: usize) {
-        self.set_child_tid.store(tid as u64, Ordering::Release)
+        self.set_child_tid.store(tid, Ordering::Release)
     }
 
     /// clear (zero) the child thread ID at the location pointed to by child_tid in clone args
     pub fn set_clear_child_tid(&self, tid: usize) {
-        self.clear_child_tid.store(tid as u64, Ordering::Release)
+        self.clear_child_tid.store(tid, Ordering::Release)
     }
 
     /// get the pointer to the child thread ID
     pub fn get_clear_child_tid(&self) -> usize {
-        self.clear_child_tid.load(Ordering::Acquire) as usize
+        self.clear_child_tid.load(Ordering::Acquire)
     }
 
     #[inline]
@@ -428,13 +426,13 @@ impl TaskInner {
     #[inline]
     /// get the process ID of the task
     pub fn get_process_id(&self) -> u64 {
-        self.process_id.load(Ordering::Acquire)
+        self.process_id.load(Ordering::Acquire) as _
     }
 
     #[inline]
     /// set the process ID of the task
     pub fn set_process_id(&self, process_id: u64) {
-        self.process_id.store(process_id, Ordering::Release);
+        self.process_id.store(process_id as _, Ordering::Release);
     }
 
     // /// 获取内核栈的第一个trap上下文
@@ -464,12 +462,12 @@ impl TaskInner {
             set_size * 4
         };
         let now_mask = mask & 1 << ((len) - 1);
-        self.cpu_set.store(now_mask as u64, Ordering::Release)
+        self.cpu_set.store(now_mask as _, Ordering::Release)
     }
 
     /// to get the CPU set
     pub fn get_cpu_set(&self) -> usize {
-        self.cpu_set.load(Ordering::Acquire) as usize
+        self.cpu_set.load(Ordering::Acquire)
     }
 
     /// set the scheduling policy and priority
@@ -533,7 +531,7 @@ impl TaskInner {
             time: UnsafeCell::new(TimeStat::new()),
 
             #[cfg(feature = "monolithic")]
-            process_id: AtomicU64::new(0),
+            process_id: AtomicUsize::new(0),
 
             #[cfg(feature = "monolithic")]
             is_leader: AtomicBool::new(false),
@@ -542,14 +540,14 @@ impl TaskInner {
             page_table_token: UnsafeCell::new(0),
 
             #[cfg(feature = "monolithic")]
-            set_child_tid: AtomicU64::new(0),
+            set_child_tid: AtomicUsize::new(0),
 
             #[cfg(feature = "monolithic")]
-            clear_child_tid: AtomicU64::new(0),
+            clear_child_tid: AtomicUsize::new(0),
 
             #[cfg(feature = "monolithic")]
             // 一开始默认都可以运行在每个CPU上
-            cpu_set: AtomicU64::new(0),
+            cpu_set: AtomicUsize::new(0),
 
             #[cfg(feature = "monolithic")]
             sched_status: UnsafeCell::new(SchedStatus {
