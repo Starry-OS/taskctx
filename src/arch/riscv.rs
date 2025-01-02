@@ -60,29 +60,19 @@ impl TaskContext {
     }
 }
 
-#[cfg(target_arch = "riscv32")]
-const XLENB: usize = 4;
-#[cfg(target_arch = "riscv64")]
-const XLENB: usize = 8;
-
-#[naked]
-/// Switches the context from the current task to the next task.
-///
-/// # Safety
-///
-/// This function is unsafe because it directly manipulates the CPU registers.
-pub unsafe extern "C" fn context_switch(_current_task: &mut TaskContext, _next_task: &TaskContext) {
-    unsafe {
-        naked_asm!(
+macro_rules! save_and_restore {
+    ($LDR:literal, $STR:literal, $XLENB:literal) => {
+        naked_asm!(concat!(
             r"
             .ifndef XLENB
-            .equ XLENB, {XLENB}
-
-            .macro LDR rd, rs, off
-                ld \rd, \off*XLENB(\rs)
-            .endm
-            .macro STR rs2, rs1, off
-                sd \rs2, \off*XLENB(\rs1)
+            .equ XLENB, ",
+            $XLENB,
+            "\n.macro LDR rd, rs, off\n",
+            $LDR,
+            "\n.endm\n",
+            "\n.macro STR rs2, rs1, off\n",
+            $STR,
+            "
             .endm
             .endif
 
@@ -119,7 +109,21 @@ pub unsafe extern "C" fn context_switch(_current_task: &mut TaskContext, _next_t
             LDR     ra, a1, 0
 
             ret",
-            XLENB = const XLENB
-        )
+        ))
+    };
+}
+
+#[naked]
+/// Switches the context from the current task to the next task.
+///
+/// # Safety
+///
+/// This function is unsafe because it directly manipulates the CPU registers.
+pub unsafe extern "C" fn context_switch(_current_task: &mut TaskContext, _next_task: &TaskContext) {
+    unsafe {
+        #[cfg(target_arch = "riscv32")]
+        save_and_restore!(r"lw  \rd, \off*XLENB(\rs)", r"sw \rs2, \off*XLENB(\rs1)", 4);
+        #[cfg(target_arch = "riscv64")]
+        save_and_restore!(r"ld  \rd, \off*XLENB(\rs)", r"sd \rs2, \off*XLENB(\rs1)", 8);
     }
 }
