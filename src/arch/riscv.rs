@@ -61,7 +61,7 @@ impl TaskContext {
 }
 
 macro_rules! save_and_restore {
-    ($LDR:literal, $STR:literal, $XLENB:literal) => {
+    (LDR = $LDR:literal, STR = $STR:literal, XLENB = $XLENB:literal) => {
         naked_asm!(concat!(
             r"
             .ifndef XLENB
@@ -122,8 +122,16 @@ macro_rules! save_and_restore {
 pub unsafe extern "C" fn context_switch(_current_task: &mut TaskContext, _next_task: &TaskContext) {
     unsafe {
         #[cfg(target_arch = "riscv32")]
-        save_and_restore!(r"lw  \rd, \off*XLENB(\rs)", r"sw \rs2, \off*XLENB(\rs1)", 4);
+        save_and_restore!(
+            LDR = r"lw  \rd, \off*XLENB(\rs)",
+            STR = r"sw \rs2, \off*XLENB(\rs1)",
+            XLENB = 4
+        );
         #[cfg(target_arch = "riscv64")]
-        save_and_restore!(r"ld  \rd, \off*XLENB(\rs)", r"sd \rs2, \off*XLENB(\rs1)", 8);
+        save_and_restore!(
+            LDR = r"ld  \rd, \off*XLENB(\rs)",
+            STR = r"sd \rs2, \off*XLENB(\rs1)",
+            XLENB = 8
+        );
     }
 }
