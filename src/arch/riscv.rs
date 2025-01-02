@@ -60,22 +60,53 @@ impl TaskContext {
     }
 }
 
-macro_rules! save_and_restore {
-    (LDR = $LDR:literal, STR = $STR:literal, XLENB = $XLENB:literal) => {
-        naked_asm!(concat!(
-            r"
-            .ifndef XLENB
-            .equ XLENB, ",
-            $XLENB,
-            "\n.macro LDR rd, rs, off\n",
-            $LDR,
-            "\n.endm\n",
-            "\n.macro STR rs2, rs1, off\n",
-            $STR,
-            "
-            .endm
-            .endif
+#[cfg(target_arch = "riscv32")]
+macro_rules! STR_LDR {
+    () => {
+        r"
+.ifndef XLENB
+.equ XLENB, 4
 
+.macro STR rs2, rs1, off
+    sw \rs2, \off*XLENB(\rs1)
+.endm
+.macro LDR rd, rs, off
+    lw \rd, \off*XLENB(\rs)
+.endm
+
+.endif"
+    };
+}
+
+#[cfg(target_arch = "riscv64")]
+macro_rules! STR_LDR {
+    () => {
+        r"
+.ifndef XLENB
+.equ XLENB, 8
+
+.macro STR rs2, rs1, off
+    sd \rs2, \off*XLENB(\rs1)
+.endm
+.macro LDR rd, rs, off
+    ld \rd, \off*XLENB(\rs)
+.endm
+
+.endif"
+    };
+}
+
+#[naked]
+/// Switches the context from the current task to the next task.
+///
+/// # Safety
+///
+/// This function is unsafe because it directly manipulates the CPU registers.
+pub unsafe extern "C" fn context_switch(_current_task: &mut TaskContext, _next_task: &TaskContext) {
+    unsafe {
+        naked_asm!(
+            STR_LDR!(),
+            "
             // save old context (callee-saved registers)
             STR     ra, a0, 0
             STR     sp, a0, 1
@@ -109,29 +140,6 @@ macro_rules! save_and_restore {
             LDR     ra, a1, 0
 
             ret",
-        ))
-    };
-}
-
-#[naked]
-/// Switches the context from the current task to the next task.
-///
-/// # Safety
-///
-/// This function is unsafe because it directly manipulates the CPU registers.
-pub unsafe extern "C" fn context_switch(_current_task: &mut TaskContext, _next_task: &TaskContext) {
-    unsafe {
-        #[cfg(target_arch = "riscv32")]
-        save_and_restore!(
-            LDR = r"lw  \rd, \off*XLENB(\rs)",
-            STR = r"sw \rs2, \off*XLENB(\rs1)",
-            XLENB = 4
-        );
-        #[cfg(target_arch = "riscv64")]
-        save_and_restore!(
-            LDR = r"ld  \rd, \off*XLENB(\rs)",
-            STR = r"sd \rs2, \off*XLENB(\rs1)",
-            XLENB = 8
-        );
+        )
     }
 }
